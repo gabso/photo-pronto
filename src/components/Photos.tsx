@@ -35,9 +35,59 @@ export default function Photos() {
   return (
     <div>
       {groupedPhotos ? (
-        <pre>{JSON.stringify(groupedPhotos, null, 2)}</pre>
+        <>
+          <section style={{ marginBottom: '20px' }}>
+            <h1 style={{ textAlign: 'center', marginBottom: '10px' }}>Grouped Photos</h1>
+            {Object.entries(groupedPhotos.groupedImages).map(([category, urls]) => (
+              <div key={category} style={{ marginBottom: '20px' }}>
+                <h2 style={{ textTransform: 'capitalize', marginBottom: '10px' }}>{category}</h2>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+                  {urls.map((url, index) => (
+                    <img
+                      key={index}
+                      src={url}
+                      alt={category}
+                      style={{
+                        width: '150px',
+                        height: '150px',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section>
+            <h1 style={{ textAlign: 'center', marginBottom: '10px' }}>Best Images</h1>
+            {Object.entries(groupedPhotos.bestImages).map(([category, urls]) => (
+              <div key={category} style={{ marginBottom: '20px' }}>
+                <h2 style={{ textTransform: 'capitalize', marginBottom: '10px' }}>{category}</h2>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+                  {urls.map((url, index) => (
+                    <img
+                      key={index}
+                      src={url}
+                      alt={category}
+                      style={{
+                        width: '150px',
+                        height: '150px',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        </>
       ) : (
-        <p>Loading...</p>
+        <p style={{ textAlign: 'center', fontSize: '18px', color: '#555' }}>Loading...</p>
       )}
     </div>
   );

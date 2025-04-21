@@ -9,11 +9,6 @@ const client = new Groq({
   apiKey: GROQ_API_KEY,
 });
 
-// Type for our classification result
-interface ImageResult {
-  url: string;
-  labels: string[];
-}
 
 export async function POST(request: NextRequest) {
 
@@ -28,12 +23,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const res = await groupImagesBySubject(imageUrls);
+    const groupedImages = await groupImagesBySubject(imageUrls);
+  //  console.log("groupedImages:", groupedImages);
 
-     await ChooseBestImageForEachCategory(res);
+    const bestImages = await ChooseBestImageForEachCategory(groupedImages);
 
+    // console.log("Best Images:", bestImages);
 
-    return NextResponse.json(res);
+    // Return both grouped images and best images
+    return NextResponse.json(
+      {
+        groupedImages,
+        bestImages
+      },
+      {
+        status: 200
+      }
+    );
   } catch (error) {
     console.error("Error processing request:", error);
     return NextResponse.json(
@@ -44,7 +50,7 @@ export async function POST(request: NextRequest) {
 }
 
 
-const MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct";
+const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 
 async function groupImagesBySubject(imageUrls: string[]) {
@@ -131,7 +137,7 @@ async function ComparePhotos(imageUrls: string[]) {
   const promptText = `
     You will be shown ${imageUrls.length} images. 
     ${imageUrls.map((url, idx) => `Image ${idx + 1} corresponds to URL: ${url}`).join(", ")}.
-    Analyze all images and determine which one is the best based on resolution, clarity, composition, and overall quality.
+    Analyze all images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality.
     Respond ONLY with the URL of the best image with no other text.
   `;
 
@@ -164,6 +170,7 @@ async function ComparePhotos(imageUrls: string[]) {
     stream: false,
     stop: null,
   });
+
 
   return chatCompletion.choices[0].message.content
 }
@@ -230,6 +237,5 @@ async function ChooseBestImageForEachCategory(input: InputType) {
     }
   }
 
-  console.log("Final Selection:", bestImagePerCategory);
   return bestImagePerCategory;
 }

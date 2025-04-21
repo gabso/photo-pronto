@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { MediaItem } from "../Interfaces/MediaItem";
 
 async function getGoogleToken() {
   const { userId } = await auth();
@@ -14,36 +15,9 @@ async function getGoogleToken() {
   };
 }
 
-interface MediaItem {
-  id: string;
-  productUrl: string;
-  baseUrl: string;
-  mimeType: string;
-  mediaMetadata: {
-    creationTime: string;
-    width: string;
-    height: string;
-    photo: {
-      cameraMake: string;
-      cameraModel: string;
-      focalLength: number;
-      apertureFNumber: number;
-      isoEquivalent: number;
-      exposureTime: string;
-    };
-  };
-  filename: string;
-}
 
-function modifyBaseUrlWithOriginalDimensions(mediaItem: MediaItem, width:string, height:string): string {
-  // const width = mediaItem.mediaMetadata.width;
-  // const height = mediaItem.mediaMetadata.height;
-  let modifiedBaseUrl = mediaItem.baseUrl;
 
-  modifiedBaseUrl += `=w${width}-h${height}`;
 
-  return modifiedBaseUrl;
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -63,19 +37,18 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
 
+
     if (!data.mediaItems || !Array.isArray(data.mediaItems)) {
       throw new Error("Invalid response from Google Photos API");
     }
 
         const baseUrls = data.mediaItems.map(({ baseUrl }: MediaItem) => baseUrl);
 
-     //Maybe use in the future with paid API key   
-    // const Urls = data.mediaItems.map((mediaItem: MediaItem) =>
-    //   modifyBaseUrlWithOriginalDimensions(mediaItem,'1024','768')
-    // );
+        console.log("Google Photos API response:", baseUrls); // Log the response for debugging
 
 
-    return NextResponse.json({ mediaItems: data.mediaItems, Urls:baseUrls });
+
+    return NextResponse.json({ mediaItems: data.mediaItems, Urls: baseUrls });
   } catch (error) {
     console.error("Error fetching photos:", error);
     return NextResponse.json(
