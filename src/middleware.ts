@@ -8,15 +8,12 @@ export default clerkMiddleware(async (auth, req) => {
   const dashboardUrl = new URL("/dashboard", req.url);
   const signInUrl = new URL("/sign-in", req.url);
 
-  // Set redirect URL for successful authentication
   signInUrl.searchParams.set("redirect_url", dashboardUrl.toString());
 
-  // Handle protected routes
   if (!userId && !isPublicRoute(req)) {
     return redirectToSignIn({ returnBackUrl: dashboardUrl.toString() });
   }
 
-  // Redirect authenticated users from auth pages to dashboard
   if (userId && isPublicRoute(req)) {
     return NextResponse.redirect(dashboardUrl);
   }

@@ -1,12 +1,7 @@
 import { SignOutButton } from "@clerk/nextjs";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import Photos from '@/components/Photos';
 
 export default async function DashboardPage() {
-  const authObj = await auth();
-  const userObj = await currentUser();
-
-  console.log({ authObj });
-  console.log({ userObj });
 
   return (
     <div>
@@ -15,7 +10,10 @@ export default async function DashboardPage() {
           Sign Out
         </button>
       </SignOutButton>
-      <h1>Dashboard</h1>
+      <main className="p-10">
+      <h1 className="text-2xl font-bold mb-4">Photo pronto Demo</h1>
+      <Photos />
+    </main>
     </div>
   );
 }
