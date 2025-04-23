@@ -15,40 +15,40 @@ async function getGoogleToken() {
   };
 }
 
-
-
-
-
 export async function GET(request: NextRequest) {
   try {
     const token = await getGoogleToken();
-    const url = "https://photoslibrary.googleapis.com/v1/mediaItems";
+    const url = "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100";
+    let allMediaItems = [];
+    let nextPageToken = null;
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token.token}`,
-        "Content-Type": "application/json",
-      },
-    });
+    do {
+      const response = await fetch(nextPageToken ? `${url}&pageToken=${nextPageToken}` : url, {
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error(`Google Photos API error: ${response.statusText}`);
-    }
+      if (!response.ok) {
+        throw new Error(`Google Photos API error: ${response.statusText}`);
+      }
 
-    const data = await response.json();
+      const data = await response.json();
 
+      if (!data.mediaItems || !Array.isArray(data.mediaItems)) {
+        throw new Error("Invalid response from Google Photos API");
+      }
 
-    if (!data.mediaItems || !Array.isArray(data.mediaItems)) {
-      throw new Error("Invalid response from Google Photos API");
-    }
+      allMediaItems = allMediaItems.concat(data.mediaItems);
+      nextPageToken = data.nextPageToken;
+    } while (nextPageToken);
 
-        const baseUrls = data.mediaItems.map(({ baseUrl }: MediaItem) => baseUrl);
+    const baseUrls = allMediaItems.map(({ baseUrl }: MediaItem) => baseUrl);
 
-        console.log("Google Photos API response:", baseUrls); // Log the response for debugging
+    console.log("Google Photos API response:", baseUrls.length); // Log the response for debugging
 
-
-
-    return NextResponse.json({ mediaItems: data.mediaItems, Urls: baseUrls });
+    return NextResponse.json({ mediaItems: allMediaItems, Urls: baseUrls });
   } catch (error) {
     console.error("Error fetching photos:", error);
     return NextResponse.json(

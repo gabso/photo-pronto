@@ -9,9 +9,7 @@ const client = new Groq({
   apiKey: GROQ_API_KEY,
 });
 
-
 export async function POST(request: NextRequest) {
-
   try {
     const body = await request.json();
     const { imageUrls } = body;
@@ -24,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const groupedImages = await groupImagesBySubject(imageUrls);
-  //  console.log("groupedImages:", groupedImages);
+    //  console.log("groupedImages:", groupedImages);
 
     const bestImages = await ChooseBestImageForEachCategory(groupedImages);
 
@@ -34,10 +32,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         groupedImages,
-        bestImages
+        bestImages,
       },
       {
-        status: 200
+        status: 200,
       }
     );
   } catch (error) {
@@ -49,9 +47,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-
 const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-
 
 async function groupImagesBySubject(imageUrls: string[]) {
   const groups: Record<string, string[]> = {};
@@ -75,29 +71,26 @@ async function groupImagesBySubject(imageUrls: string[]) {
             Strive for consistency across all images. You'll be processing images in separate batches and won't know which words were used in the other batches.
             
             Respond *only* with a JSON array of strings, one description per image, in the order provided. Do not include any extra text or formatting.`
-            
-            
-            
           },
-          ...batch.map(url => ({
+          ...batch.map((url) => ({
             type: "image_url",
             image_url: { url },
-         response_format: { type: 'json_object' },
-         temperature:0
-          }))
-        ]
-      }
+            response_format: { type: "json_object" },
+            temperature: 0,
+          })),
+        ],
+      },
     ];
 
     try {
       const response = await client.chat.completions.create({
         model: MODEL,
-        messages
+        messages,
       });
 
       // Extract and parse the JSON array from the response
       const content = response.choices[0].message.content;
-      debugger
+      debugger;
       const jsonMatch = content.match(/\[.*\]/s); // extract JSON array from response
       if (!jsonMatch) {
         console.error("No JSON array found in response:", content);
@@ -117,7 +110,7 @@ async function groupImagesBySubject(imageUrls: string[]) {
     }
 
     // Optional: delay to avoid rate limits
-    // await new Promise(res => setTimeout(res, 1500));
+    await new Promise(res => setTimeout(res, 31000));
   }
 
   return groups;
@@ -133,36 +126,27 @@ async function ComparePhotos(imageUrls: string[]) {
     throw new Error("You must provide between 2 and 5 image URLs.");
   }
 
-  // Generate the prompt text dynamically
-  const promptText = `
-    You will be shown ${imageUrls.length} images. 
-    ${imageUrls.map((url, idx) => `Image ${idx + 1} corresponds to URL: ${url}`).join(", ")}.
-    Analyze all images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality.
-    Respond ONLY with the URL of the best image with no other text.
-  `;
-
-  // Build the message content array
-  const messageContent = [
+  const messages = [
     {
-      type: "text",
-      text: promptText,
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Analyze the following images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality. Respond ONLY with the index of the best image (starting from 0) in the provided list.`
+        },
+        ...imageUrls.map((url) => ({
+          type: "image_url",
+          image_url: {
+            detail: "high",
+            url,
+          },
+        })),
+      ],
     },
-    ...imageUrls.map((url) => ({
-      type: "image_url",
-      image_url: {
-        detail: "high",
-        url,
-      },
-    })),
   ];
 
   const chatCompletion = await client.chat.completions.create({
-    messages: [
-      {
-        role: "user",
-        content: messageContent,
-      },
-    ],
+    messages,
     model: MODEL,
     temperature: 0,
     max_completion_tokens: 1024,
@@ -171,11 +155,13 @@ async function ComparePhotos(imageUrls: string[]) {
     stop: null,
   });
 
+  const bestImageIndex = parseInt(chatCompletion.choices[0].message.content, 10);
+  if (isNaN(bestImageIndex) || bestImageIndex < 0 || bestImageIndex >= imageUrls.length) {
+    throw new Error("Invalid response from Groq API: " + chatCompletion.choices[0].message.content);
+  }
 
-  return chatCompletion.choices[0].message.content
+  return imageUrls[bestImageIndex];
 }
-
-
 
 async function ChooseBestImageForEachCategory(input: InputType) {
   const bestImagePerCategory: Record<string, string[]> = {};
