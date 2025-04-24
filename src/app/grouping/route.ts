@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import Groq from "groq-sdk";
+import { executeGroqRequest } from "../Utils/ImageUtils";
 
 type InputType = Record<string, string[]>;
 
@@ -48,19 +49,13 @@ export async function POST(request: NextRequest) {
 }
 
 const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const TOKEN_COUNT = 2405
+
 
 async function groupImagesBySubject(imageUrls: string[]) {
   const groups: Record<string, string[]> = {};
 
-  for (let i = 0; i < imageUrls.length; i += 5) {
-    const batch = imageUrls.slice(i, i + 5);
-    const messages = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `For each image, generate a concise three-word description following this pattern: [main subject] [landscape type] [location name]. Examples: "dog park new york", "car street central park", "food beach venice beach".
+  const text =`For each image, generate a concise three-word description following this pattern: [main subject] [landscape type] [location name]. Examples: "dog park new york", "car street central park", "food beach venice beach".
 
             *   **Main subject:** Use a single, common noun to identify the primary object or person taken.
             
@@ -71,6 +66,16 @@ async function groupImagesBySubject(imageUrls: string[]) {
             Strive for consistency across all images. You'll be processing images in separate batches and won't know which words were used in the other batches.
             
             Respond *only* with a JSON array of strings, one description per image, in the order provided. Do not include any extra text or formatting.`
+
+  for (let i = 0; i < imageUrls.length; i += 5) {
+    const batch = imageUrls.slice(i, i + 5);
+    const messages = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text
           },
           ...batch.map((url) => ({
             type: "image_url",
@@ -82,11 +87,17 @@ async function groupImagesBySubject(imageUrls: string[]) {
       },
     ];
 
+
+
+
     try {
-      const response = await client.chat.completions.create({
-        model: MODEL,
-        messages,
-      });
+      const response = await executeGroqRequest(
+        () => client.chat.completions.create({
+          model: MODEL,
+          messages,
+        }),
+        TOKEN_COUNT // Pass the calculated token count
+      );
 
       // Extract and parse the JSON array from the response
       const content = response.choices[0].message.content;
@@ -126,13 +137,15 @@ async function ComparePhotos(imageUrls: string[]) {
     throw new Error("You must provide between 2 and 5 image URLs.");
   }
 
+  const text=  `Analyze the following images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality. Respond ONLY with the index of the best image (starting from 0) in the provided list.`
+
   const messages = [
     {
       role: "user",
       content: [
         {
           type: "text",
-          text: `Analyze the following images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality. Respond ONLY with the index of the best image (starting from 0) in the provided list.`
+          text
         },
         ...imageUrls.map((url) => ({
           type: "image_url",
@@ -145,15 +158,15 @@ async function ComparePhotos(imageUrls: string[]) {
     },
   ];
 
-  const chatCompletion = await client.chat.completions.create({
-    messages,
-    model: MODEL,
-    temperature: 0,
-    max_completion_tokens: 1024,
-    top_p: 1,
-    stream: false,
-    stop: null,
-  });
+
+  const chatCompletion = await executeGroqRequest(
+    () => client.chat.completions.create({
+      messages,
+      model: MODEL,
+      temperature: 0
+    }),
+    TOKEN_COUNT // Pass the calculated token count
+  );
 
   const bestImageIndex = parseInt(chatCompletion.choices[0].message.content, 10);
   if (isNaN(bestImageIndex) || bestImageIndex < 0 || bestImageIndex >= imageUrls.length) {
