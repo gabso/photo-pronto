@@ -22,22 +22,38 @@ const GROQ_DAILY_LIMIT = 1000;
 const resetGroqDailyRequests = () => { groqDailyRequests = 0; };
 setInterval(resetGroqDailyRequests, 24 * 60 * 60 * 1000);
 
-export async function executeGroqRequest(requestFn, tokensRequired,messages) {
-  try {
-    // Chain the tokenLimiter with the groqLimiter to ensure both limits are respected
-    return await tokenLimiter.schedule({ weight: tokensRequired }, async () => {
+export async function executeGroqRequest(requestFn, tokensRequired) {
+  const MAX_RETRIES = 3; // Maximum number of retries
+  const RETRY_DELAY = 2000; // Delay between retries in milliseconds
 
-console.log("Executing Groq SDK request...");
-        // Execute the request
-        return await requestFn();
+  let attempt = 0;
 
-    });
-  } catch (err) {
-    console.error("err:",JSON.stringify( err));
-    console.error("err.message:", err.message);
-    console.error("messages:", JSON.stringify(messages));
-    throw new Error("Failed to execute Groq SDK request.");
+  while (attempt < MAX_RETRIES) {
+    try {
+      return await tokenLimiter.schedule(
+        { weight: tokensRequired },
+        async () => {
+          console.log("Executing request with token limit:", tokensRequired); // Log before executing requestFn
+          const result = await requestFn();
+          return result;
+        }
+      );
+    } catch (err) {
+      console.error("Error during scheduling or execution (attempt", attempt + 1, "):", err);
+      console.error("Parameters sent to requestFn on error:", tokensRequired); // Log the parameters sent to requestFn only if there's an error
+
+      // Check if the error is a 503 Service Unavailable
+      if (err.message.includes("503") && attempt < MAX_RETRIES - 1) {
+        console.log("503 Service Unavailable error encountered. Retrying in", RETRY_DELAY, "ms...");
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY)); // Wait before retrying
+        attempt++;
+      } else {
+        throw new Error("Request failed: " + err.message);
+      }
+    }
   }
+
+  throw new Error("Request failed after maximum retries.");
 }
 
 export function modifyBaseUrlWithOriginalDimensions(mediaItem: MediaItem, width?: string, height?: string): string {

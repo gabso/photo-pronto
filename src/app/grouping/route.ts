@@ -5,7 +5,7 @@ import { executeGroqRequest } from "../Utils/ImageUtils";
 
 type InputType = Record<string, string[]>;
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY2;
 const client = new Groq({
   apiKey: GROQ_API_KEY,
 });
@@ -97,7 +97,6 @@ async function groupImagesBySubject(imageUrls: string[]) {
           messages,
         }),
         TOKEN_COUNT, // Pass the calculated token count
-        messages 
       );
 
       // Extract and parse the JSON array from the response
@@ -166,7 +165,6 @@ async function ComparePhotos(imageUrls: string[]) {
       temperature: 0
     }),
     TOKEN_COUNT,  // Pass the calculated token count
-    messages 
   );
 
   const bestImageIndex = parseInt(chatCompletion.choices[0].message.content, 10);
@@ -181,6 +179,7 @@ async function ChooseBestImageForEachCategory(input: InputType) {
   const bestImagePerCategory: Record<string, string[]> = {};
 
   for (const [key, list] of Object.entries(input)) {
+    
     if (list.length === 1) {
       bestImagePerCategory[key] = list;
     } else if (list.length > 5) {
@@ -205,7 +204,6 @@ async function ChooseBestImageForEachCategory(input: InputType) {
             chunks.push(chunk);
           }
 
-          console.log('compared image number:', i, 'of', currentBatch.length)
 
         }
 
@@ -233,6 +231,9 @@ async function ChooseBestImageForEachCategory(input: InputType) {
       try {
         const bestImage = await ComparePhotos(list);
         bestImagePerCategory[key] = bestImage ? [bestImage] : [];
+
+        console.log('compared category:', key)
+
       } catch (err) {
         console.error(`Error processing category ${key}:`, err);
         bestImagePerCategory[key] = [];
