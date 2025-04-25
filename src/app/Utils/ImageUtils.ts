@@ -22,23 +22,20 @@ const GROQ_DAILY_LIMIT = 1000;
 const resetGroqDailyRequests = () => { groqDailyRequests = 0; };
 setInterval(resetGroqDailyRequests, 24 * 60 * 60 * 1000);
 
-export async function executeGroqRequest(requestFn, tokensRequired) {
+export async function executeGroqRequest(requestFn, tokensRequired,messages) {
   try {
     // Chain the tokenLimiter with the groqLimiter to ensure both limits are respected
     return await tokenLimiter.schedule({ weight: tokensRequired }, async () => {
-      return await groqLimiter.schedule(async () => {
-        // Increment daily request count
-        if (groqDailyRequests >= GROQ_DAILY_LIMIT) {
-          throw new Error("Daily request limit exceeded.");
-        }
-        groqDailyRequests++;
 
+console.log("Executing Groq SDK request...");
         // Execute the request
         return await requestFn();
-      });
+
     });
   } catch (err) {
-    console.error("Error executing Groq SDK request:", err.message);
+    console.error("err:",JSON.stringify( err));
+    console.error("err.message:", err.message);
+    console.error("messages:", JSON.stringify(messages));
     throw new Error("Failed to execute Groq SDK request.");
   }
 }

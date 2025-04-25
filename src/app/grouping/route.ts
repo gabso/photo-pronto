@@ -96,7 +96,8 @@ async function groupImagesBySubject(imageUrls: string[]) {
           model: MODEL,
           messages,
         }),
-        TOKEN_COUNT // Pass the calculated token count
+        TOKEN_COUNT, // Pass the calculated token count
+        messages 
       );
 
       // Extract and parse the JSON array from the response
@@ -120,8 +121,7 @@ async function groupImagesBySubject(imageUrls: string[]) {
       console.error("Batch error:", err);
     }
 
-    // Optional: delay to avoid rate limits
-    await new Promise(res => setTimeout(res, 31000));
+   console.log('grouped image number:', i, 'of', imageUrls.length)
   }
 
   return groups;
@@ -165,7 +165,8 @@ async function ComparePhotos(imageUrls: string[]) {
       model: MODEL,
       temperature: 0
     }),
-    TOKEN_COUNT // Pass the calculated token count
+    TOKEN_COUNT,  // Pass the calculated token count
+    messages 
   );
 
   const bestImageIndex = parseInt(chatCompletion.choices[0].message.content, 10);
@@ -203,6 +204,9 @@ async function ChooseBestImageForEachCategory(input: InputType) {
           if (chunk.length >= 2) {
             chunks.push(chunk);
           }
+
+          console.log('compared image number:', i, 'of', currentBatch.length)
+
         }
 
         // Process chunks with error handling
