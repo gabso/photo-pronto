@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { MediaItem } from "../Interfaces/MediaItem";
+import PrismaClient  from '../lib/prisma';
 
 async function getGoogleToken() {
   const { userId } = await auth();
