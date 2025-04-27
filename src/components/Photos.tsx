@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { MediaItem } from "../app/Interfaces/MediaItem";
 
 export default function Photos() {
   const [groupedPhotos, setGroupedPhotos] = useState(null);
@@ -10,7 +11,7 @@ export default function Photos() {
         const photosResponse = await fetch('/photos');
         const photosData = await photosResponse.json();
 
-        if (!photosData || !Array.isArray(photosData.Urls)) {
+        if (!photosData || !Array.isArray(photosData.mediaItems)) {
           throw new Error('Invalid response from /photos');
         }
 
@@ -19,7 +20,7 @@ export default function Photos() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ imageUrls: photosData.Urls }),
+          body: JSON.stringify({ mediaItems: photosData.mediaItems }),
         });
 
         const groupingData = await groupingResponse.json();

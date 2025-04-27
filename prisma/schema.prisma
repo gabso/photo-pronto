@@ -14,10 +14,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User{
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String
+  imageIds     String[]
+  categoryIds   String[]
+}
+
 model Category {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   name         String
   imageIds     String[]
   bestImageId  String?
 }
+
 

@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import Groq from "groq-sdk";
 import { executeGroqRequest } from "../Utils/ImageUtils";
+import PrismaClient  from '../lib/prisma';
+import { MediaItem } from "../Interfaces/MediaItem";
 
-type InputType = Record<string, string[]>;
+type InputType = Record<string, MediaItem[]>;
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY2;
 const client = new Groq({
@@ -13,16 +15,16 @@ const client = new Groq({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageUrls } = body;
+    const mediaItems: MediaItem[] = body.mediaItems;
 
-    if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+    if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
       return NextResponse.json(
         { error: "Invalid request. 'imageUrls' must be a non-empty array." },
         { status: 400 }
       );
     }
 
-    const groupedImages = await groupImagesBySubject(imageUrls);
+    const groupedImages = await groupImagesBySubject(mediaItems);
     //  console.log("groupedImages:", groupedImages);
 
     const bestImages = await ChooseBestImageForEachCategory(groupedImages);
@@ -30,13 +32,24 @@ export async function POST(request: NextRequest) {
     // console.log("Best Images:", bestImages);
 
     // Return both grouped images and best images
+    const groupedImagesBaseUrls: Record<string, string[]> = {};
+    const bestImagesBaseUrls: Record<string, string[]> = {};
+
+    for (const [key, mediaItems] of Object.entries(groupedImages)) {
+      groupedImagesBaseUrls[key] = mediaItems.map(item => item.baseUrl);
+    }
+
+    for (const [key, mediaItems] of Object.entries(bestImages)) {
+      bestImagesBaseUrls[key] = mediaItems.map(item => item.baseUrl);
+    }
+
     return NextResponse.json(
       {
-        groupedImages,
-        bestImages,
+      groupedImages: groupedImagesBaseUrls,
+      bestImages: bestImagesBaseUrls,
       },
       {
-        status: 200,
+      status: 200,
       }
     );
   } catch (error) {
@@ -52,8 +65,8 @@ const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const TOKEN_COUNT = 2405
 
 
-async function groupImagesBySubject(imageUrls: string[]) {
-  const groups: Record<string, string[]> = {};
+async function groupImagesBySubject(mediaItems: MediaItem[]) {
+  const groups: Record<string, MediaItem[]> = {};
 
   const text =`For each image, generate a concise three-word description following this pattern: [main subject] [landscape type] [location name]. Examples: "dog park new york", "car street central park", "food beach venice beach".
 
@@ -67,8 +80,8 @@ async function groupImagesBySubject(imageUrls: string[]) {
             
             Respond *only* with a JSON array of strings, one description per image, in the order provided. Do not include any extra text or formatting.`
 
-  for (let i = 0; i < imageUrls.length; i += 5) {
-    const batch = imageUrls.slice(i, i + 5);
+  for (let i = 0; i < mediaItems.length; i += 5) {
+    const batch = mediaItems.slice(i, i + 5);
     const messages = [
       {
         role: "user",
@@ -77,9 +90,9 @@ async function groupImagesBySubject(imageUrls: string[]) {
             type: "text",
             text
           },
-          ...batch.map((url) => ({
+          ...batch.map((mediaItem) => ({
             type: "image_url",
-            image_url: { url },
+            image_url: { url: mediaItem.baseUrl },
             response_format: { type: "json_object" },
             temperature: 0,
           })),
@@ -120,7 +133,7 @@ async function groupImagesBySubject(imageUrls: string[]) {
       console.error("Batch error:", err);
     }
 
-   console.log('grouped image number:', i, 'of', imageUrls.length)
+   console.log('grouped image number:', i, 'of', mediaItems.length)
   }
 
   return groups;
@@ -131,8 +144,8 @@ function normalizeCategory(text: string): string {
   return text.trim().toLowerCase().replace(/[^a-z0-9 ]/g, "");
 }
 
-async function ComparePhotos(imageUrls: string[]) {
-  if (imageUrls.length < 2 || imageUrls.length > 5) {
+async function ComparePhotos(mediaItems: MediaItem[]) {
+  if (mediaItems.length < 2 || mediaItems.length > 5) {
     throw new Error("You must provide between 2 and 5 image URLs.");
   }
 
@@ -146,11 +159,11 @@ async function ComparePhotos(imageUrls: string[]) {
           type: "text",
           text
         },
-        ...imageUrls.map((url) => ({
+        ...mediaItems.map((mediaItem) => ({
           type: "image_url",
           image_url: {
             detail: "high",
-            url,
+            url: mediaItem.baseUrl,
           },
         })),
       ],
@@ -168,15 +181,15 @@ async function ComparePhotos(imageUrls: string[]) {
   );
 
   const bestImageIndex = parseInt(chatCompletion.choices[0].message.content, 10);
-  if (isNaN(bestImageIndex) || bestImageIndex < 0 || bestImageIndex >= imageUrls.length) {
+  if (isNaN(bestImageIndex) || bestImageIndex < 0 || bestImageIndex >= mediaItems.length) {
     throw new Error("Invalid response from Groq API: " + chatCompletion.choices[0].message.content);
   }
 
-  return imageUrls[bestImageIndex];
+  return mediaItems[bestImageIndex];
 }
 
 async function ChooseBestImageForEachCategory(input: InputType) {
-  const bestImagePerCategory: Record<string, string[]> = {};
+  const bestImagePerCategory: Record<string, MediaItem[]> = {};
 
   for (const [key, list] of Object.entries(input)) {
     
@@ -187,7 +200,7 @@ async function ChooseBestImageForEachCategory(input: InputType) {
       let safetyCounter = 0;
 
       while (currentBatch.length > 1 && safetyCounter < 10) {
-        const chunks: string[][] = [];
+        const chunks: MediaItem[][] = [];
         
         // Create chunks of 2-5 images
         for (let i = 0; i < currentBatch.length; i += 5) {
@@ -215,7 +228,7 @@ async function ChooseBestImageForEachCategory(input: InputType) {
           })
         );
 
-        currentBatch = results.reduce<string[]>((acc, result) => {
+        currentBatch = results.reduce<MediaItem[]>((acc, result) => {
           if (result.status === "fulfilled" && result.value) {
             acc.push(result.value);
           }

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { MediaItem } from "../Interfaces/MediaItem";
-import PrismaClient  from '../lib/prisma';
+import PrismaClient from '../lib/prisma';
+import {  Prisma } from '@prisma/client'
 
-async function getGoogleToken() {
-  const { userId } = await auth();
+async function getGoogleToken(userId: string) {
   const client = await clerkClient();
   const token = await client.users.getUserOauthAccessToken(
     userId || "",
@@ -18,18 +18,24 @@ async function getGoogleToken() {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = await getGoogleToken();
-    const url = "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100";
+    const { userId } = await auth();
+
+    const token = await getGoogleToken(userId);
+    const url =
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100";
     let allMediaItems = [];
     let nextPageToken = null;
 
     do {
-      const response = await fetch(nextPageToken ? `${url}&pageToken=${nextPageToken}` : url, {
-        headers: {
-          Authorization: `Bearer ${token.token}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await fetch(
+        nextPageToken ? `${url}&pageToken=${nextPageToken}` : url,
+        {
+          headers: {
+            Authorization: `Bearer ${token.token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`Google Photos API error: ${response.statusText}`);
@@ -49,7 +55,13 @@ export async function GET(request: NextRequest) {
 
     console.log("Google Photos API response:", baseUrls.length); // Log the response for debugging
 
-    return NextResponse.json({ mediaItems: allMediaItems, Urls: baseUrls });
+    const imageIds = allMediaItems.map(( item : MediaItem) => item.id)
+
+    const user: Prisma.UserCreateManyInput = {userId, imageIds};
+
+    await PrismaClient.user.createMany({ data: user })
+
+    return NextResponse.json({ mediaItems: allMediaItems});
   } catch (error) {
     console.error("Error fetching photos:", error);
     return NextResponse.json(
