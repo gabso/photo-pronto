@@ -23,6 +23,8 @@ const resetGroqDailyRequests = () => { groqDailyRequests = 0; };
 setInterval(resetGroqDailyRequests, 24 * 60 * 60 * 1000);
 
 export async function executeGroqRequest(requestFn, tokensRequired) {
+  console.log('in executeGroqRequest')
+
   const MAX_RETRIES = 3; // Maximum number of retries
   const RETRY_DELAY = 2000; // Delay between retries in milliseconds
 
