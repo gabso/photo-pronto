@@ -8,6 +8,9 @@ import prisma from "../lib/prisma";
 import { fetchBaseUrlsInBatches } from "../Utils/GooglePhotosApiUtils";
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import NodeCache from "node-cache";
+
+const cache = new NodeCache({ stdTTL: 3600 }); // Cache with 60 minutes TTL
 
 async function getGoogleToken() {
   const { userId } = await auth();
@@ -77,6 +80,14 @@ async function categorizeAndDetermineBestImage(
   userId: string,
   mediaItems: MediaItem[]
 ) {
+  const cacheKey = `categorizeAndDetermineBestImage_${userId}`;
+
+  // Check if results are cached
+  const cachedResults = cache.get(cacheKey);
+  if (cachedResults) {
+    return cachedResults;
+  }
+
   const token = await getGoogleToken(); // Get the Google token
   // Check if there are categories for the current userId in the DB
   const categories = await prisma.category.findMany({
@@ -211,11 +222,15 @@ async function categorizeAndDetermineBestImage(
     existingBestImages[categoryName] = uniqueBestImages;
   }
 
-  // Return the merged results
-  return {
+  // Cache the results
+  const results = {
     groupedImages: existingGroupedImages,
     bestImages: existingBestImages,
   };
+  cache.set(cacheKey, results);
+
+  // Return the merged results
+  return results;
 }
 
 const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
