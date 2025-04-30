@@ -45,8 +45,8 @@ export async function executeGroqRequest(requestFn, tokensRequired) {
       console.error("Parameters sent to requestFn on error:", tokensRequired); // Log the parameters sent to requestFn only if there's an error
 
       // Check if the error is a 503 Service Unavailable
-      if (err.message.includes("503") && attempt < MAX_RETRIES - 1) {
-        console.log("503 Service Unavailable error encountered. Retrying in", RETRY_DELAY, "ms...");
+      if (attempt < MAX_RETRIES - 1) {
+        console.log("error encountered. Retrying in", RETRY_DELAY, "ms...");
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY)); // Wait before retrying
         attempt++;
       } else {

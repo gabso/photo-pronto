@@ -5,7 +5,7 @@ import { executeGroqRequest } from "../Utils/ImageUtils";
 import PrismaClient from "../lib/prisma";
 import { MediaItem } from "../Interfaces/MediaItem";
 import prisma from "../lib/prisma";
-import { fetchBaseUrlFromGoogleLibraryApi } from "../Utils/GooglePhotosApiUtils";
+import { fetchBaseUrlsInBatches } from "../Utils/GooglePhotosApiUtils";
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
@@ -86,30 +86,32 @@ async function categorizeAndDetermineBestImage(
   const existingGroupedImages: Record<string, MediaItem[]> = {};
   const existingBestImages: Record<string, MediaItem[]> = {};
 
-  for (const category of categories) {
-    const mediaItems = await Promise.all(
-      category.imageIds.map(async (imageId) => {
-        const image = await fetchBaseUrlFromGoogleLibraryApi(imageId, token); // Replace with actual function to fetch image details
-        return {
-          id: imageId,
-          baseUrl: image.baseUrl,
-        } as MediaItem;
-      })
-    );
+  // Flatten all categories and get the image base URLs at once
+  const allImageIds = categories.flatMap((category) => category.imageIds);
+  const allMediaItems = await fetchBaseUrlsInBatches(allImageIds, token);
 
-    existingGroupedImages[category.name] = mediaItems;
+  // Create a map of imageId to baseUrl for quick lookup
+  const imageIdToBaseUrl = new Map(
+    allMediaItems.map((item) => [item.id, item.baseUrl])
+  );
+
+  // Assign the baseUrls to the images of each category accordingly
+  for (const category of categories) {
+    existingGroupedImages[category.name] = category.imageIds.map((id) => ({
+      id,
+      baseUrl: imageIdToBaseUrl.get(id) || "",
+    }));
 
     if (category.bestImageId) {
-      const bestImage = await fetchBaseUrlFromGoogleLibraryApi(
-        category.bestImageId,
-        token
-      ); // Replace with actual function to fetch image details
-      existingBestImages[category.name] = [
-        {
-          id: category.bestImageId,
-          baseUrl: bestImage.baseUrl,
-        } as MediaItem,
-      ];
+      const bestImageBaseUrl = imageIdToBaseUrl.get(category.bestImageId);
+      if (bestImageBaseUrl) {
+        existingBestImages[category.name] = [
+          {
+            id: category.bestImageId,
+            baseUrl: bestImageBaseUrl,
+          },
+        ];
+      }
     }
   }
 
