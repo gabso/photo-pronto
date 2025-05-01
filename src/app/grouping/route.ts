@@ -36,12 +36,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const mediaItems: MediaItem[] = body.mediaItems;
 
-    if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
-      return NextResponse.json(
-        { error: "Invalid request. 'imageUrls' must be a non-empty array." },
-        { status: 400 }
-      );
-    }
     const { userId } = await auth()
     const { groupedImages, bestImages } = await categorizeAndDetermineBestImage(userId, mediaItems);
     // console.log("Best Images:", bestImages);
