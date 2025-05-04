@@ -22,4 +22,13 @@ model Category {
   bestImageId  String?
 }
 
+model RefinedCategory {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String
+  name         String @unique
+  imageIds     String[]
+  bestImageId  String?
+}
+
+
 

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import Groq from "groq-sdk";
 import { executeGroqRequest } from "../Utils/ImageUtils";
-import PrismaClient from "../lib/prisma";
 import { MediaItem } from "../Interfaces/MediaItem";
 import prisma from "../lib/prisma";
 import { fetchBaseUrlsInBatches } from "../Utils/GooglePhotosApiUtils";
@@ -36,8 +35,56 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const mediaItems: MediaItem[] = body.mediaItems;
 
-    const { userId } = await auth()
-    const { groupedImages, bestImages } = await categorizeAndDetermineBestImage(userId, mediaItems);
+    const { userId } = await auth();
+    const { groupedImages, bestImages } = await categorizeAndDetermineBestImage(
+      userId,
+      mediaItems
+    );
+
+
+    const totalImages = Object.values(groupedImages).reduce((sum, images) => sum + images.length, 0);
+    console.log('Total images of all categories:', totalImages);
+
+    let imagesRefined = 0;
+    const refinedResults: {
+      groupedImages: Record<string, MediaItem[]>;
+      bestImages: Record<string, MediaItem[]>;
+    } = { groupedImages: {}, bestImages: {} };
+    for (const [categoryName, images] of Object.entries(groupedImages)) {
+      imagesRefined += images.length;
+      console.log("imagesRefined:", imagesRefined);
+      if (images.length < 5) {
+        refinedResults.groupedImages[categoryName] = images; // Keep the original images if less than 5
+        refinedResults.bestImages[categoryName] =
+          bestImages[categoryName] || []; // Keep the original best images if less than 5
+        continue;
+      }
+
+      console.log("Refining category:", categoryName, "with images:", images.length);
+
+      const refinedImages = await refineAndRegroupImages(images);
+
+      for (const [categoryName, images] of Object.entries(
+        refinedImages.groupedImages
+      )) {
+        if (!refinedResults.groupedImages[categoryName]) {
+          refinedResults.groupedImages[categoryName] = [];
+        }
+        refinedResults.groupedImages[categoryName].push(...images);
+      }
+
+      for (const [categoryName, images] of Object.entries(
+        refinedImages.bestImages
+      )) {
+        if (!refinedResults.bestImages[categoryName]) {
+          refinedResults.bestImages[categoryName] = [];
+        }
+        refinedResults.bestImages[categoryName].push(...images);
+      }
+    }
+
+    console.log("Refined Results:", JSON.stringify(refinedResults)); // Log the refined results for debugging
+
     // console.log("Best Images:", bestImages);
 
     // Return both grouped images and best images
@@ -50,6 +97,39 @@ export async function POST(request: NextRequest) {
 
     for (const [key, mediaItems] of Object.entries(bestImages)) {
       bestImagesBaseUrls[key] = mediaItems.map((item) => item.baseUrl);
+    }
+
+    // Store refinedResults in the DB under the refinedCategory model
+    for (const [categoryName, images] of Object.entries(refinedResults.groupedImages)) {
+      const existingCategory = await prisma.refinedCategory.findUnique({
+        where: { name: categoryName },
+      });
+
+      if (existingCategory) {
+        // Update the category with new image IDs
+        await prisma.refinedCategory.update({
+          where: { name: categoryName },
+          data: {
+            imageIds: Array.from(
+              new Set([
+                ...existingCategory.imageIds,
+                ...images.map((img) => img.id),
+              ])
+            ),
+            bestImageId: refinedResults.bestImages[categoryName]?.[0]?.id || null,
+          },
+        });
+      } else {
+        // Create a new category with the refined results
+        await prisma.refinedCategory.create({
+          data: {
+            userId,
+            name: categoryName,
+            imageIds: images.map((img) => img.id),
+            bestImageId: refinedResults.bestImages[categoryName]?.[0]?.id || null,
+          },
+        });
+      }
     }
 
     return NextResponse.json(
@@ -93,6 +173,8 @@ async function categorizeAndDetermineBestImage(
 
   // Flatten all categories and get the image base URLs at once
   const allImageIds = categories.flatMap((category) => category.imageIds);
+
+  console.log("allImageIds:", allImageIds); // Log the image IDs for debugging
   const allMediaItems = await fetchBaseUrlsInBatches(allImageIds, token);
 
   // Create a map of imageId to baseUrl for quick lookup
@@ -277,7 +359,6 @@ async function groupImagesBySubject(mediaItems: MediaItem[]) {
 
       // Extract and parse the JSON array from the response
       const content = response.choices[0].message.content;
-      debugger;
       const jsonMatch = content.match(/\[.*\]/s); // extract JSON array from response
       if (!jsonMatch) {
         console.error("No JSON array found in response:", content);
@@ -429,4 +510,43 @@ async function ChooseBestImageForEachCategory(input: InputType) {
   }
 
   return bestImagePerCategory;
+}
+
+async function refineAndRegroupImages(mediaItems: MediaItem[]) {
+  let groupedImages = await groupImagesBySubject(mediaItems);
+
+  // Step 1: Refine overly broad categories
+  for (const [category, images] of Object.entries(groupedImages)) {
+    if (images.length >= 5) {
+      // Example threshold for overly broad categories
+      const refinedGroups = await groupImagesBySubject(images);
+      delete groupedImages[category];
+      Object.assign(groupedImages, refinedGroups);
+    }
+  }
+
+  // Step 2: Choose the best image for each refined category
+  const bestImages = await ChooseBestImageForEachCategory(groupedImages);
+
+  // Step 3: Recheck best images across categories
+  const bestImageList = Object.values(bestImages).flat();
+  const regroupedBestImages = await groupImagesBySubject(bestImageList);
+
+  // Step 4: Merge regrouped best images back into groupedImages
+  for (const [category, images] of Object.entries(regroupedBestImages)) {
+    if (!groupedImages[category]) {
+      groupedImages[category] = [];
+    }
+    groupedImages[category].push(...images);
+
+    console.log('broad category:', category, 'images:', images.length);
+  }
+
+  // Step 5: Re-run ChooseBestImageForEachCategory on the final groups
+  const finalBestImages = await ChooseBestImageForEachCategory(groupedImages);
+
+  
+
+
+  return { groupedImages, bestImages: finalBestImages };
 }
