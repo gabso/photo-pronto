@@ -8,6 +8,18 @@ import { fetchBaseUrlsInBatches } from "../Utils/GooglePhotosApiUtils";
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import NodeCache from "node-cache";
+import { z } from "zod"; // npm install zod
+
+// Define a schema with Zod
+const bestImageSchema = z.object({
+  best_image: z.number().positive(),
+});
+
+type bestImage = z.infer<typeof bestImageSchema>;
+
+const stringArraySchema = z.array(z.string()); // Define Zod schema for JSON string array
+
+type stringArray = z.infer<typeof stringArraySchema>;
 
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache with 60 minutes TTL
 
@@ -34,58 +46,21 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const mediaItems: MediaItem[] = body.mediaItems;
-
     const { userId } = await auth();
     const { groupedImages, bestImages } = await categorizeAndDetermineBestImage(
       userId,
       mediaItems
     );
 
+    const totalImages = Object.values(groupedImages).reduce(
+      (sum, images) => sum + images.length,
+      0
+    );
+    console.log("Total images of all categories:", totalImages);
 
-    const totalImages = Object.values(groupedImages).reduce((sum, images) => sum + images.length, 0);
-    console.log('Total images of all categories:', totalImages);
 
-    let imagesRefined = 0;
-    const refinedResults: {
-      groupedImages: Record<string, MediaItem[]>;
-      bestImages: Record<string, MediaItem[]>;
-    } = { groupedImages: {}, bestImages: {} };
-    for (const [categoryName, images] of Object.entries(groupedImages)) {
-      imagesRefined += images.length;
-      console.log("imagesRefined:", imagesRefined);
-      if (images.length < 5) {
-        refinedResults.groupedImages[categoryName] = images; // Keep the original images if less than 5
-        refinedResults.bestImages[categoryName] =
-          bestImages[categoryName] || []; // Keep the original best images if less than 5
-        continue;
-      }
 
-      console.log("Refining category:", categoryName, "with images:", images.length);
 
-      const refinedImages = await refineAndRegroupImages(images);
-
-      for (const [categoryName, images] of Object.entries(
-        refinedImages.groupedImages
-      )) {
-        if (!refinedResults.groupedImages[categoryName]) {
-          refinedResults.groupedImages[categoryName] = [];
-        }
-        refinedResults.groupedImages[categoryName].push(...images);
-      }
-
-      for (const [categoryName, images] of Object.entries(
-        refinedImages.bestImages
-      )) {
-        if (!refinedResults.bestImages[categoryName]) {
-          refinedResults.bestImages[categoryName] = [];
-        }
-        refinedResults.bestImages[categoryName].push(...images);
-      }
-    }
-
-    console.log("Refined Results:", JSON.stringify(refinedResults)); // Log the refined results for debugging
-
-    // console.log("Best Images:", bestImages);
 
     // Return both grouped images and best images
     const groupedImagesBaseUrls: Record<string, string[]> = {};
@@ -97,39 +72,6 @@ export async function POST(request: NextRequest) {
 
     for (const [key, mediaItems] of Object.entries(bestImages)) {
       bestImagesBaseUrls[key] = mediaItems.map((item) => item.baseUrl);
-    }
-
-    // Store refinedResults in the DB under the refinedCategory model
-    for (const [categoryName, images] of Object.entries(refinedResults.groupedImages)) {
-      const existingCategory = await prisma.refinedCategory.findUnique({
-        where: { name: categoryName },
-      });
-
-      if (existingCategory) {
-        // Update the category with new image IDs
-        await prisma.refinedCategory.update({
-          where: { name: categoryName },
-          data: {
-            imageIds: Array.from(
-              new Set([
-                ...existingCategory.imageIds,
-                ...images.map((img) => img.id),
-              ])
-            ),
-            bestImageId: refinedResults.bestImages[categoryName]?.[0]?.id || null,
-          },
-        });
-      } else {
-        // Create a new category with the refined results
-        await prisma.refinedCategory.create({
-          data: {
-            userId,
-            name: categoryName,
-            imageIds: images.map((img) => img.id),
-            bestImageId: refinedResults.bestImages[categoryName]?.[0]?.id || null,
-          },
-        });
-      }
     }
 
     return NextResponse.json(
@@ -325,7 +267,11 @@ async function groupImagesBySubject(mediaItems: MediaItem[]) {
             
             Strive for consistency across all images. You'll be processing images in separate batches and won't know which words were used in the other batches.
             
-            Respond *only* with a JSON array of strings, one description per image, in the order provided. Do not include any extra text or formatting.`;
+            always respond with a valid JSON array of strings using this structure: ["item1", "item2", "item3"], one description per image, in the order provided. Do not include any extra text or formatting.
+              Your response must:
+            - Use only alphanumeric characters and spaces
+            - Exclude special characters
+            - Maintain consistent item formatting`;
 
   for (let i = 0; i < mediaItems.length; i += 5) {
     const batch = mediaItems.slice(i, i + 5);
@@ -339,7 +285,10 @@ async function groupImagesBySubject(mediaItems: MediaItem[]) {
           },
           ...batch.map((mediaItem) => ({
             type: "image_url",
-            image_url: { url: mediaItem.baseUrl },
+            image_url: {
+              detail: "high",
+              url: mediaItem.baseUrl,
+            },
             response_format: { type: "json_object" },
             temperature: 0,
           })),
@@ -359,22 +308,24 @@ async function groupImagesBySubject(mediaItems: MediaItem[]) {
 
       // Extract and parse the JSON array from the response
       const content = response.choices[0].message.content;
-      const jsonMatch = content.match(/\[.*\]/s); // extract JSON array from response
-      if (!jsonMatch) {
-        console.error("No JSON array found in response:", content);
-        continue;
-      }
-      const labels: string[] = JSON.parse(jsonMatch[0]);
-
+      const labels = stringArraySchema.parse(JSON.parse(content)); // Validate with Zod
+      console.log("labels:", labels); // Log the labels for debugging
       // Group images by normalized label
       labels.forEach((label, idx) => {
-        const category = normalizeCategory(label);
+        // const category = normalizeCategory(label);
         const imgUrl = batch[idx];
-        if (!groups[category]) groups[category] = [];
-        groups[category].push(imgUrl);
+        if (!groups[label]) groups[label] = [];
+        groups[label].push(imgUrl);
       });
-    } catch (err) {
-      console.error("Batch error:", err);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("Array validation failed:", error.errors);
+      } else if (error instanceof SyntaxError) {
+        console.error("JSON parsing failed: Invalid array format");
+      } else {
+        console.error("Error:", error);
+      }
+      return undefined;
     }
 
     console.log("grouped image number:", i, "of", mediaItems.length);
@@ -391,58 +342,75 @@ function normalizeCategory(text: string): string {
     .replace(/[^a-z0-9 ]/g, "");
 }
 
-async function ComparePhotos(mediaItems: MediaItem[]) {
-  if (mediaItems.length < 2 || mediaItems.length > 5) {
-    throw new Error("You must provide between 2 and 5 image URLs.");
-  }
+async function ComparePhotos(
+  mediaItems: MediaItem[]
+): Promise<MediaItem | undefined> {
+  try {
+    if (mediaItems.length < 2 || mediaItems.length > 5) {
+      throw new Error("You must provide between 2 and 5 image URLs.");
+    }
 
-  const text = `Analyze the following images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality. Respond ONLY with the index of the best image (starting from 0) in the provided list.`;
+    const text = `Analyze the following images and determine which one is the best based on angle image taken, the best spatial perception, resolution, clarity, composition, and overall quality. Respond ONLY with the index of the best image in the provided list with valid JSON objects that match this structure:
+{
+"best_image": number
+}
+Your response should ONLY contain the JSON object and nothing else`;
 
-  const messages = [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text,
-        },
-        ...mediaItems.map((mediaItem) => ({
-          type: "image_url",
-          image_url: {
-            detail: "high",
-            url: mediaItem.baseUrl,
+    const messages = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text,
           },
-        })),
-      ],
-    },
-  ];
+          ...mediaItems.map((mediaItem) => ({
+            type: "image_url",
+            image_url: {
+              detail: "high",
+              url: mediaItem.baseUrl,
+            },
+            response_format: { type: "json_object" },
+          })),
+        ],
+      },
+    ];
 
-  const chatCompletion = await executeGroqRequest(
-    () =>
-      client.chat.completions.create({
-        messages,
-        model: MODEL,
-        temperature: 0,
-      }),
-    TOKEN_COUNT // Pass the calculated token count
-  );
-
-  const bestImageIndex = parseInt(
-    chatCompletion.choices[0].message.content,
-    10
-  );
-  if (
-    isNaN(bestImageIndex) ||
-    bestImageIndex < 0 ||
-    bestImageIndex >= mediaItems.length
-  ) {
-    throw new Error(
-      "Invalid response from Groq API: " +
-        chatCompletion.choices[0].message.content
+    const chatCompletion = await executeGroqRequest(
+      () =>
+        client.chat.completions.create({
+          messages,
+          model: MODEL,
+          temperature: 0,
+        }),
+      TOKEN_COUNT // Pass the calculated token count
     );
-  }
 
-  return mediaItems[bestImageIndex];
+    const responseContent = chatCompletion.choices[0].message.content;
+
+    // Parse and validate JSON
+    const jsonData = JSON.parse(responseContent || "");
+    const validatedData = bestImageSchema.parse(jsonData);
+
+    const bestImageId = validatedData.best_image;
+
+    console.log("bestImageId:", validatedData); // Log the best image ID for debugging
+
+    if (bestImageId === -1) {
+      throw new Error(`Best image ID ${bestImageId} not found in mediaItems.`);
+    }
+
+    return mediaItems[bestImageId];
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error("Schema validation failed:", error.errors);
+    } else if (error instanceof SyntaxError) {
+      console.error("JSON parsing failed: The model did not return valid JSON");
+    } else {
+      console.error("Error:", error);
+    }
+    return undefined;
+  }
 }
 
 async function ChooseBestImageForEachCategory(input: InputType) {
@@ -510,43 +478,4 @@ async function ChooseBestImageForEachCategory(input: InputType) {
   }
 
   return bestImagePerCategory;
-}
-
-async function refineAndRegroupImages(mediaItems: MediaItem[]) {
-  let groupedImages = await groupImagesBySubject(mediaItems);
-
-  // Step 1: Refine overly broad categories
-  for (const [category, images] of Object.entries(groupedImages)) {
-    if (images.length >= 5) {
-      // Example threshold for overly broad categories
-      const refinedGroups = await groupImagesBySubject(images);
-      delete groupedImages[category];
-      Object.assign(groupedImages, refinedGroups);
-    }
-  }
-
-  // Step 2: Choose the best image for each refined category
-  const bestImages = await ChooseBestImageForEachCategory(groupedImages);
-
-  // Step 3: Recheck best images across categories
-  const bestImageList = Object.values(bestImages).flat();
-  const regroupedBestImages = await groupImagesBySubject(bestImageList);
-
-  // Step 4: Merge regrouped best images back into groupedImages
-  for (const [category, images] of Object.entries(regroupedBestImages)) {
-    if (!groupedImages[category]) {
-      groupedImages[category] = [];
-    }
-    groupedImages[category].push(...images);
-
-    console.log('broad category:', category, 'images:', images.length);
-  }
-
-  // Step 5: Re-run ChooseBestImageForEachCategory on the final groups
-  const finalBestImages = await ChooseBestImageForEachCategory(groupedImages);
-
-  
-
-
-  return { groupedImages, bestImages: finalBestImages };
 }
