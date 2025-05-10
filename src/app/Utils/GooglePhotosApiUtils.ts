@@ -110,3 +110,52 @@ export async function fetchBaseUrlsInBatches(
 
   return results;
 }
+
+export async function fetchImagesInDriveFolder(
+  token: string,
+  folderId: string
+): Promise<MediaItem[]> {
+  const baseUrl = "https://www.googleapis.com/drive/v3/files";
+  let allMediaItems: MediaItem[] = [];
+  let nextPageToken: string | null = null;
+
+  do {
+    const params = new URLSearchParams({
+      pageSize: "100",
+      fields: "nextPageToken, files(id, name, mimeType, webContentLink, thumbnailLink)",
+      q: `'${folderId}' in parents and mimeType contains 'image/'`,
+    });
+    if (nextPageToken) params.append("pageToken", nextPageToken);
+
+    const url = `${baseUrl}?${params.toString()}`;
+
+    const response = await fetch(url, {
+      headers: await generateHeaders(token),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Google Drive API error: ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.files || !Array.isArray(data.files)) {
+      throw new Error("Invalid response from Google Drive API");
+    }
+
+    const mediaItems: MediaItem[] = data.files.map((file: any) => ({
+      id: file.id,
+      baseUrl: file.webContentLink || "",
+      mimeType: file.mimeType,
+      filename: file.name,
+      productUrl: file.thumbnailLink || "",
+      mediaMetadata: {}, // add more metadata if needed
+    }));
+
+    allMediaItems = allMediaItems.concat(mediaItems);
+    nextPageToken = data.nextPageToken;
+  } while (nextPageToken);
+
+  return allMediaItems;
+}
